@@ -1,6 +1,8 @@
 Debug/
 Release/
 *.opensdf
+*.suo
 *.dll
 *.sdf
 ipch/
+.vs/
