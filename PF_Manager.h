@@ -76,4 +76,8 @@ const RC MarkDirty(PF_PageHandle *pageHandle);
 
 const RC UnpinPage(PF_PageHandle *pageHandle);
 
+PF_FileHandle* getPF_FileHandle(void);
+
+PF_PageHandle* getPF_PageHandle();
+
 #endif

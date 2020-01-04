@@ -97,6 +97,7 @@ const RC CloseFile(PF_FileHandle *fileHandle)
 	return SUCCESS;
 }
 
+//从buff中取出一块Frame
 const RC AllocateBlock(Frame **buffer)
 {
 	int i,min,offset;
@@ -201,7 +202,8 @@ const RC GetThisPage(PF_FileHandle *fileHandle,PageNum pageNum,PF_PageHandle *pa
 	}
 	return SUCCESS;
 }
-//在指定文件中分配一个新的页面，并将其放入缓冲区，返回页面句柄指针。分配页面时，如果文件中有空闲页，就直接分配一个空闲页；如果文件中没有空闲页，则扩展文件规模来增加新的空闲页
+//在指定文件中分配一个新的页面，并将其放入缓冲区，返回页面句柄指针。分配页面时，如果文件中有空闲页，就直接分配一个空闲页；
+//如果文件中没有空闲页，则扩展文件规模来增加新的空闲页
 const RC AllocatePage(PF_FileHandle *fileHandle,PF_PageHandle *pageHandle)
 {
 	PF_PageHandle *pPageHandle=pageHandle;
@@ -327,7 +329,7 @@ const RC ForcePage(PF_FileHandle *fileHandle,PageNum pageNum)
 	}
 	return SUCCESS;
 }
-//把所有Page写文件
+//把所有Page写文件,这里不考虑PinCount感觉会有问题
 const RC ForceAllPages(PF_FileHandle *fileHandle)
 {
 	int i,offset;
