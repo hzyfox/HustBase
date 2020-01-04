@@ -21,13 +21,13 @@
 typedef unsigned int PageNum;
 
 typedef struct{
-	PageNum pageNum;
-	char pData[PF_PAGE_SIZE];
+	PageNum pageNum; //页号
+	char pData[PF_PAGE_SIZE]; // 前面 sizeof(PF_FileSubHeader)大小放 结构体，后面的空间放bitmap
 }Page;
 
 typedef struct{
-	PageNum pageCount;
-	int nAllocatedPages;
+	PageNum pageCount; //尾页的页号
+	int nAllocatedPages; //已经分配页的数目
 }PF_FileSubHeader;
 
 typedef struct{

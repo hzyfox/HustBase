@@ -28,6 +28,7 @@ const RC CreateFile(const char *fileName)
 	fd=open(fileName,_O_RDWR);
 	Page page;
 	memset(&page,0,PF_PAGESIZE);
+	//第0页的 首先放 PF_FILESUBHDR结构体， 然后放位图
 	bitmap=page.pData+(int)PF_FILESUBHDR_SIZE;
 	fileSubHeader=(PF_FileSubHeader *)page.pData;
 	fileSubHeader->nAllocatedPages=1;
@@ -125,7 +126,8 @@ const RC AllocateBlock(Frame **buffer)
 		return PF_NOBUF;
 	if(bf_manager.frame[min].bDirty==true){
 		offset=(bf_manager.frame[min].page.pageNum)*sizeof(Page);
-		if(_lseek(bf_manager.frame[min].fileDesc,offset,SEEK_SET)==offset-1)
+		//find a bug: 应该是等于offset的时候， bool值为1,此时减一等于0， 刚好不会return，其他情况均return err。 其实也可以写成 != offset
+		if((_lseek(bf_manager.frame[min].fileDesc,offset,SEEK_SET)==offset)-1)
 			return PF_FILEERR;
 		if(_write(bf_manager.frame[min].fileDesc,&(bf_manager.frame[min].page),sizeof(Page))!=sizeof(Page))
 			return PF_FILEERR;
@@ -166,6 +168,7 @@ const RC GetThisPage(PF_FileHandle *fileHandle,PageNum pageNum,PF_PageHandle *pa
 	if((fileHandle->pBitmap[pageNum/8]&(1<<(pageNum%8)))==0)
 		return PF_INVALIDPAGENUM;
 	pPageHandle->bOpen=true;
+	//在Buffer中寻找是否已经加载进来了
 	for(i=0;i<PF_BUFFER_SIZE;i++){
 		if(bf_manager.allocated[i]==false)
 			continue;
@@ -187,7 +190,8 @@ const RC GetThisPage(PF_FileHandle *fileHandle,PageNum pageNum,PF_PageHandle *pa
 	pPageHandle->pFrame->pinCount=1;
 	pPageHandle->pFrame->accTime=clock();
 	offset=pageNum*sizeof(Page);
-	if(_lseek(fileHandle->fileDesc,offset,SEEK_SET)==offset-1){
+	//Find Bug: 我觉得这里应该是 (off_t)-1
+	if(_lseek(fileHandle->fileDesc,offset,SEEK_SET)==(off_t)-1){
 		bf_manager.allocated[pPageHandle->pFrame-bf_manager.frame]=false;
 		return PF_FILEERR;
 	}
@@ -197,12 +201,13 @@ const RC GetThisPage(PF_FileHandle *fileHandle,PageNum pageNum,PF_PageHandle *pa
 	}
 	return SUCCESS;
 }
-	
+//在指定文件中分配一个新的页面，并将其放入缓冲区，返回页面句柄指针。分配页面时，如果文件中有空闲页，就直接分配一个空闲页；如果文件中没有空闲页，则扩展文件规模来增加新的空闲页
 const RC AllocatePage(PF_FileHandle *fileHandle,PF_PageHandle *pageHandle)
 {
 	PF_PageHandle *pPageHandle=pageHandle;
 	RC tmp;
 	int i,byte,bit;
+	//Page 写过之后就是脏的， 控制页脏了
 	fileHandle->pHdrFrame->bDirty=true;
 	if((fileHandle->pFileSubHeader->nAllocatedPages)<=(fileHandle->pFileSubHeader->pageCount)){
 		for(i=0;i<=fileHandle->pFileSubHeader->pageCount;i++){
@@ -260,7 +265,7 @@ const RC GetData(PF_PageHandle *pageHandle,char **pData)
 	*pData=pageHandle->pFrame->page.pData;
 	return SUCCESS;
 }
-
+//在这之前 需要调用UnpinPage
 const RC DisposePage(PF_FileHandle *fileHandle,PageNum pageNum)
 {
 	int i;
@@ -299,7 +304,7 @@ const RC UnpinPage(PF_PageHandle *pageHandle)
 	pageHandle->pFrame->pinCount--;
 	return SUCCESS;
 }
-
+//把Page写文件
 const RC ForcePage(PF_FileHandle *fileHandle,PageNum pageNum)
 {
 	int i;
@@ -322,7 +327,7 @@ const RC ForcePage(PF_FileHandle *fileHandle,PageNum pageNum)
 	}
 	return SUCCESS;
 }
-
+//把所有Page写文件
 const RC ForceAllPages(PF_FileHandle *fileHandle)
 {
 	int i,offset;
@@ -334,7 +339,8 @@ const RC ForceAllPages(PF_FileHandle *fileHandle)
 
 		if(bf_manager.frame[i].bDirty==true){
 			offset=(bf_manager.frame[i].page.pageNum)*sizeof(Page);
-			if(_lseek(fileHandle->fileDesc,offset,SEEK_SET)==offset-1)
+			//Find Bug: 和前面的几个BUG同理
+			if(_lseek(fileHandle->fileDesc,offset,SEEK_SET)==(off_t)-1)
 				return PF_FILEERR;
 			if(_write(fileHandle->fileDesc,&(bf_manager.frame[i].page),sizeof(Page))!=sizeof(Page))
 				return PF_FILEERR;
