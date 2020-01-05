@@ -14,7 +14,7 @@ RC OpenScan(RM_FileScan *rmFileScan,RM_FileHandle *fileHandle,int conNum,Con *co
 	for (i = 2; i <= fileHandle->pFileHandler->pFileSubHeader->pageCount; ++i) {
 		PF_PageHandle pageHandle;
 		if ((tmp = GetThisPage(fileHandle->pFileHandler, i, &pageHandle)) != SUCCESS) {
-			return tmp;
+			continue;
 		}
 		rmFileScan->PageHandle = pageHandle;
 		rmFileScan->pn = (&pageHandle)->pFrame->page.pageNum;
@@ -31,25 +31,58 @@ RC OpenScan(RM_FileScan *rmFileScan,RM_FileHandle *fileHandle,int conNum,Con *co
 
 RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 {
-	RM_PageHandle* rmPageHandle = getRM_PageHanle();
 	RM_FileHandle* rmFileHandle = rmFileScan->pRMFileHandle;
 	int pageCount = rmFileHandle->pFileHandler->pFileSubHeader->pageCount;
 	int i = 0;
 	RC tmp;
 	for (i = rmFileScan->pn; i <= pageCount; ++i) {
+		rmFileScan->pn = i;
+		if (!(rmFileHandle->pFileHandler->pBitmap[i / 8] & (1 << (i % 8)))) {
+			continue;
+		}
+		if (GetThisPage(rmFileScan->pRMFileHandle->pFileHandler, i, &(rmFileScan->PageHandle)) != SUCCESS) {
+			continue;
+		}
 		PF_PageHandle pageHandle = rmFileScan->PageHandle;
 		RM_PageHandle rmPageHandle;
 		ConfigRMPageHandle(&rmPageHandle, rmFileHandle, &pageHandle);
-		for (int j = rmFileScan->sn; j < rmFileHandle->pRecordFileSubHeader->recordsPerPage; ++j) {
-			int byte, bit;
+		int recordPerPage = rmFileHandle->pRecordFileSubHeader->recordsPerPage;
+		char* pageBitmap = rmPageHandle.bitmap;
+		int recordSize = rmFileHandle->pRecordFileSubHeader->recordSize;
+		for (int j = rmFileScan->sn; j < recordPerPage; ++j) {
+			rmFileScan->sn = j;
+			if (!(pageBitmap[j / 8] & (1 << (j % 8)))) {
+				continue;
+			}
 			Con* con = rmFileScan->conditions;
-
-
+			bool res = true;
+			strcpy_s(rec->pData, recordSize, rmPageHandle.data + j * recordSize);
+			for (int k = 0; k < rmFileScan->conNum; ++k) {
+				res &= compSingleCondition(con + k, rec);
+				if (!res) {
+					break;
+				}
+			}
+			if (res) {
+				rec->rid.bValid = true;
+				rec->rid.pageNum = i;
+				rec->rid.slotNum = j;
+				rec->bValid = true;
+				if (j + 1 == recordPerPage) {
+					rmFileScan->pn = i+1;
+					rmFileScan->sn = 0;
+				}else {
+					rmFileScan->pn = i;
+					rmFileScan->sn = j + 1;
+				}
+				UnpinPage(&pageHandle);
+				return SUCCESS;
+			}
 		}
+		UnpinPage(&pageHandle);
 	}
 
-	free(rmPageHandle);
-	return SUCCESS;
+	return PF_EOF;
 }
 
 RC GetRec (RM_FileHandle *fileHandle,RID *rid, RM_Record *rec) 
@@ -370,6 +403,7 @@ bool compSingleCondition(const Con* con, const RM_Record* record) {
 		break;
 	default:
 		perror("unknown attrType");
+		return false;
 		break;
 	}
 	switch (con->compOp)
@@ -378,8 +412,18 @@ bool compSingleCondition(const Con* con, const RM_Record* record) {
 		return cmp == 0;
 	case LessT:
 		return cmp < 0;
+	case GreatT:
+		return cmp > 0;
+	case LEqual:
+		return cmp <= 0;
+	case GEqual:
+		return cmp >= 0;
+	case NEqual:
+		return cmp != 0;
+	case NO_OP:
+		return true;
 	default:
-		break;
+		return false;
 	}
 }
 
