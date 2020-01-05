@@ -18,11 +18,18 @@ typedef struct {//文件句柄
 	bool bOpen;//句柄是否打开（是否正在被使用）
 	PF_FileHandle* pFileHandler; //文件句柄
 	RM_FileSubHeader* pRecordFileSubHeader;//meta信息结构指针
-	char* pRecordBitmap; //记录位图指针
-	Frame* pRecFrame;
-	Page* pRecPage;
+	char* pRecordBitmap; //记录位图指针,记录满页，非满页
+	Frame* pRecFrame; //指向记录元信息帧
+	Page* pRecPage; //指向记录元信息页
 	//需要自定义其内部结构
 }RM_FileHandle;
+
+typedef struct {
+	PF_PageHandle* pageHandle;
+	char* data;
+	char* bitmap;
+	int count;
+}RM_PageHandle;
 
 typedef struct {	
 	PageNum pageNum;	//记录所在页的页号

@@ -225,30 +225,38 @@ const RC AllocatePage(PF_FileHandle *fileHandle,PF_PageHandle *pageHandle)
 			return GetThisPage(fileHandle,i,pageHandle);
 		
 	}
+	return AllocateNewPage(fileHandle, pPageHandle);
+}
+//这里有一次写文件操作，需要注意
+const RC AllocateNewPage(PF_FileHandle* fileHandle, PF_PageHandle* pageHandle) {
+	fileHandle->pHdrFrame->bDirty = true;
+	PF_PageHandle* pPageHandle = pageHandle;
+	RC tmp;
+	int i, byte, bit;
 	fileHandle->pFileSubHeader->nAllocatedPages++;
 	fileHandle->pFileSubHeader->pageCount++;
-	byte=fileHandle->pFileSubHeader->pageCount/8;
-	bit=fileHandle->pFileSubHeader->pageCount%8;
-	fileHandle->pBitmap[byte]|=(1<<bit);
-	if((tmp=AllocateBlock(&(pPageHandle->pFrame)))!=SUCCESS){
+	byte = fileHandle->pFileSubHeader->pageCount / 8;
+	bit = fileHandle->pFileSubHeader->pageCount % 8;
+	fileHandle->pBitmap[byte] |= (1 << bit);
+	if ((tmp = AllocateBlock(&(pPageHandle->pFrame))) != SUCCESS) {
 		return tmp;
 	}
-	pPageHandle->pFrame->bDirty=false;
-	pPageHandle->pFrame->fileDesc=fileHandle->fileDesc;
-	pPageHandle->pFrame->fileName=fileHandle->fileName;
-	pPageHandle->pFrame->pinCount=1;
-	pPageHandle->pFrame->accTime=clock();
-	memset(&(pPageHandle->pFrame->page),0,sizeof(Page));
-	pPageHandle->pFrame->page.pageNum=fileHandle->pFileSubHeader->pageCount;
-	if(_lseek(fileHandle->fileDesc,0,SEEK_END)==-1){
-		bf_manager.allocated[pPageHandle->pFrame-bf_manager.frame]=false;
+	pPageHandle->pFrame->bDirty = false;
+	pPageHandle->pFrame->fileDesc = fileHandle->fileDesc;
+	pPageHandle->pFrame->fileName = fileHandle->fileName;
+	pPageHandle->pFrame->pinCount = 1;
+	pPageHandle->pFrame->accTime = clock();
+	memset(&(pPageHandle->pFrame->page), 0, sizeof(Page));
+	pPageHandle->pFrame->page.pageNum = fileHandle->pFileSubHeader->pageCount;
+	if (_lseek(fileHandle->fileDesc, 0, SEEK_END) == -1) {
+		bf_manager.allocated[pPageHandle->pFrame - bf_manager.frame] = false;
 		return PF_FILEERR;
 	}
-	if(_write(fileHandle->fileDesc,&(pPageHandle->pFrame->page),sizeof(Page))!=sizeof(Page)){
-		bf_manager.allocated[pPageHandle->pFrame-bf_manager.frame]=false;
+	if (_write(fileHandle->fileDesc, &(pPageHandle->pFrame->page), sizeof(Page)) != sizeof(Page)) {
+		bf_manager.allocated[pPageHandle->pFrame - bf_manager.frame] = false;
 		return PF_FILEERR;
 	}
-	
+
 	return SUCCESS;
 }
 
