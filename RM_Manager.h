@@ -88,4 +88,11 @@ RC RM_OpenFile (char *fileName, RM_FileHandle *fileHandle);
 
 RC RM_CreateFile (char *fileName, int recordSize);
 
+RM_PageHandle* getRM_PageHanle();
+bool compSingleCondition(const Con* con, const RM_Record* record);
+void ConfigRMPageHandle(RM_PageHandle* rmPageHandle, RM_FileHandle* rmFileHandle, PF_PageHandle* pfPageHandle);
+int RM_BitCount(char* bitmap, int size);
+RC RM_GetThisPage(RM_FileHandle* rmFileHandle, PageNum pageNum, RM_PageHandle* rmPageHandle);
+RC RM_AllocatePage(RM_FileHandle* fileHandle, RM_PageHandle* rmPageHandle);
+
 #endif

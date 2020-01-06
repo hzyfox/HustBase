@@ -46,6 +46,7 @@ const RC CreateFile(const char *fileName)
 PF_FileHandle * getPF_FileHandle(void )
 {
 	PF_FileHandle *p=(PF_FileHandle *)malloc(sizeof( PF_FileHandle));
+	
 	p->bopen=false;
 	return p;
 }                      
@@ -155,6 +156,10 @@ const RC DisposeBlock(Frame *buf)
 PF_PageHandle* getPF_PageHandle()
 {
 	PF_PageHandle *p=(PF_PageHandle *)malloc(sizeof(PF_PageHandle));
+	if (p == NULL) {
+		perror("Null poiner err: can't allocate mem for PageHandle");
+		return NULL;
+	}
 	p->bOpen=false;
 	return p;
 }
@@ -207,8 +212,8 @@ const RC GetThisPage(PF_FileHandle *fileHandle,PageNum pageNum,PF_PageHandle *pa
 const RC AllocatePage(PF_FileHandle *fileHandle,PF_PageHandle *pageHandle)
 {
 	PF_PageHandle *pPageHandle=pageHandle;
-	RC tmp;
-	int i,byte,bit;
+	int byte,bit;
+	unsigned int i;
 	//Page 写过之后就是脏的， 控制页脏了
 	fileHandle->pHdrFrame->bDirty=true;
 	if((fileHandle->pFileSubHeader->nAllocatedPages)<=(fileHandle->pFileSubHeader->pageCount)){
@@ -232,7 +237,7 @@ const RC AllocateNewPage(PF_FileHandle* fileHandle, PF_PageHandle* pageHandle) {
 	fileHandle->pHdrFrame->bDirty = true;
 	PF_PageHandle* pPageHandle = pageHandle;
 	RC tmp;
-	int i, byte, bit;
+	int byte, bit;
 	fileHandle->pFileSubHeader->nAllocatedPages++;
 	fileHandle->pFileSubHeader->pageCount++;
 	byte = fileHandle->pFileSubHeader->pageCount / 8;

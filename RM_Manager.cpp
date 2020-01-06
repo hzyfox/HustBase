@@ -9,21 +9,18 @@ RC OpenScan(RM_FileScan *rmFileScan,RM_FileHandle *fileHandle,int conNum,Con *co
 	rmFileScan->conNum = conNum;
 	rmFileScan->conditions = conditions;
 	rmFileScan->pRMFileHandle = fileHandle;
-	int i = 0;
-	RC tmp;
+	unsigned int i = 0;
+	//我们这里先不get pagehandle, 到GetNextRec的时候再get。否则 pincount 会被增加两次。
 	for (i = 2; i <= fileHandle->pFileHandler->pFileSubHeader->pageCount; ++i) {
-		PF_PageHandle pageHandle;
-		if ((tmp = GetThisPage(fileHandle->pFileHandler, i, &pageHandle)) != SUCCESS) {
-			continue;
+		if (fileHandle->pFileHandler->pBitmap[i / 8] & (1 << (i % 8))) {
+			rmFileScan->pn = i;
+			rmFileScan->sn = 0;
+			break;
 		}
-		rmFileScan->PageHandle = pageHandle;
-		rmFileScan->pn = (&pageHandle)->pFrame->page.pageNum;
-		rmFileScan->sn = 0;
-		break;
 	}
 	if (i > fileHandle->pFileHandler->pFileSubHeader->pageCount) {
 		perror("init rmFileScan failed");
-		return RM_NOMORERECINMEM;
+		return RM_EOF;
 	}
 
 	return SUCCESS;
@@ -34,7 +31,6 @@ RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 	RM_FileHandle* rmFileHandle = rmFileScan->pRMFileHandle;
 	int pageCount = rmFileHandle->pFileHandler->pFileSubHeader->pageCount;
 	int i = 0;
-	RC tmp;
 	for (i = rmFileScan->pn; i <= pageCount; ++i) {
 		rmFileScan->pn = i;
 		if (!(rmFileHandle->pFileHandler->pBitmap[i / 8] & (1 << (i % 8)))) {
@@ -56,7 +52,7 @@ RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 			}
 			Con* con = rmFileScan->conditions;
 			bool res = true;
-			strcpy_s(rec->pData, recordSize, rmPageHandle.data + j * recordSize);
+			memcpy(rec->pData, rmPageHandle.data + j * recordSize, recordSize);
 			for (int k = 0; k < rmFileScan->conNum; ++k) {
 				res &= compSingleCondition(con + k, rec);
 				if (!res) {
@@ -82,7 +78,7 @@ RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 		UnpinPage(&pageHandle);
 	}
 
-	return PF_EOF;
+	return RM_EOF;
 }
 
 RC GetRec (RM_FileHandle *fileHandle,RID *rid, RM_Record *rec) 
@@ -91,7 +87,7 @@ RC GetRec (RM_FileHandle *fileHandle,RID *rid, RM_Record *rec)
 		return RM_INVALIDRID;
 	}
 	RC tmp;
-	int byte, bit;
+	//int byte, bit;
 	fileHandle->pRecFrame->bDirty = true;
 	
 	RM_PageHandle* rmPageHandle = getRM_PageHanle();
@@ -102,8 +98,8 @@ RC GetRec (RM_FileHandle *fileHandle,RID *rid, RM_Record *rec)
 	rec->rid = *rid;
 	int recordSize = fileHandle->pRecordFileSubHeader->recordSize;
 	rec->pData = (char*)malloc(recordSize);
-	strcpy_s(rec->pData, recordSize,
-		rmPageHandle->data + rid->slotNum * recordSize);
+	memcpy(rec->pData, 
+		rmPageHandle->data + rid->slotNum * recordSize, recordSize);
 	return SUCCESS;
 }
 
@@ -123,10 +119,10 @@ RC InsertRec (RM_FileHandle *fileHandle,char *pData, RID *rid)
 		if ((rmPageHandle->bitmap[byte] & (1 << bit)) == 0) {
 			/*rmPageHandle->pageHandle->pFrame->bDirty = true;*/
 			MarkDirty(rmPageHandle->pageHandle);
-			strcpy_s(rmPageHandle->data + (i * fileHandle->pRecordFileSubHeader->recordSize),
-				fileHandle->pRecordFileSubHeader->recordSize, pData);
+			memcpy(rmPageHandle->data + (i * fileHandle->pRecordFileSubHeader->recordSize),
+				 pData, fileHandle->pRecordFileSubHeader->recordSize);
 			rmPageHandle->count++;
-			rmPageHandle->bitmap[byte] != (1 << bit);
+			rmPageHandle->bitmap[byte] |= (1 << bit);
 			fileHandle->pRecordFileSubHeader->nRecords++;
 			rid->bValid = true;
 			rid->pageNum = rmPageHandle->pageHandle->pFrame->page.pageNum;
@@ -185,7 +181,7 @@ RC UpdateRec (RM_FileHandle *fileHandle,const RM_Record *rec)
 		return tmp;
 	}
 	MarkDirty(rmPageHandle->pageHandle);
-	strcpy_s(rmPageHandle->data, fileHandle->pRecordFileSubHeader->recordSize, rec->pData);
+	memcpy(rmPageHandle->data, rec->pData, fileHandle->pRecordFileSubHeader->recordSize);
 	return SUCCESS;
 }
 
@@ -241,7 +237,7 @@ RC RM_CreateFile (char *fileName, int recordSize)
 	if (CloseFile(pfFileHeader) != SUCCESS) {
 		return PF_FILEERR;
 	};
-
+	UnpinPage(pageHandle);
 	free(pfFileHeader);
 	free(pageHandle);
 
@@ -293,7 +289,8 @@ RC RM_AllocatePage(RM_FileHandle* fileHandle, RM_PageHandle* rmPageHandle) {
 	PF_FileHandle* pFileHandler = fileHandle->pFileHandler;
 	char* PF_bitmap = pFileHandler->pBitmap;
 	char* rec_bitmap = fileHandle->pRecordBitmap;
-	int i, byte, bit;
+	int byte, bit;
+	unsigned int i;
 	RC tmp;
 	for (i = 0; i <= pFileHandler->pFileSubHeader->pageCount; i++) {
 		byte = i / 8;
@@ -382,13 +379,14 @@ bool compSingleCondition(const Con* con, const RM_Record* record) {
 		rVal = con->Rvalue;
 	}
 	int cmp;
+	float cmp0;
 	switch (con->attrType) {
 	case chars:
 		cmp = strcmp((char*)lVal, (char*)rVal);
 		break;
 	case floats:
-		float cmp0 = *((float*)lVal) - *((float*)rVal);
-		if (abs(cmp0) < 0.000001) {
+		cmp0 = *((float*)lVal) - *((float*)rVal);
+		if (abs(cmp0) < FLT_EPSILON) {
 			cmp = 0;
 		}
 		else {
