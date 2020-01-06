@@ -216,6 +216,7 @@ const RC AllocatePage(PF_FileHandle *fileHandle,PF_PageHandle *pageHandle)
 	unsigned int i;
 	//Page 写过之后就是脏的， 控制页脏了
 	fileHandle->pHdrFrame->bDirty=true;
+	pageHandle->bOpen = true;
 	if((fileHandle->pFileSubHeader->nAllocatedPages)<=(fileHandle->pFileSubHeader->pageCount)){
 		for(i=0;i<=fileHandle->pFileSubHeader->pageCount;i++){
 			byte=i/8;

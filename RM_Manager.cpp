@@ -162,6 +162,7 @@ RC DeleteRec (RM_FileHandle *fileHandle,const RID *rid)
 	byte = rid->pageNum / 8;
 	bit = rid->pageNum % 8;
 	fileHandle->pRecordBitmap[byte] &= ~(1 << bit);
+	fileHandle->pRecordFileSubHeader->nRecords--;
 
 	return SUCCESS;
 }
@@ -207,6 +208,8 @@ RC RM_CreateFile (char *fileName, int recordSize)
 		return tmp;
 	}
 	
+	Frame* headFrame = pfFileHeader->pHdrFrame;
+	headFrame->bDirty = true;
 
 	PF_PageHandle* pageHandle = getPF_PageHandle();
 
@@ -218,6 +221,7 @@ RC RM_CreateFile (char *fileName, int recordSize)
 	if ((tmp = AllocatePage(pfFileHeader, pageHandle)) != SUCCESS) {
 		return tmp;
 	}
+	
 	recBitmap =(char*) pageHandle->pFrame->page.pData + RM_FILESUBHDR_SIZE;
 	recBitmap[0] |= 1 << 0; //第0页是页面管理器元信息
 	recBitmap[0] |= 1 << 1; //第1页是记录管理器元信息
@@ -233,11 +237,10 @@ RC RM_CreateFile (char *fileName, int recordSize)
 		/ sizeof(char);
 
 	MarkDirty(pageHandle);
-
+	UnpinPage(pageHandle);
 	if (CloseFile(pfFileHeader) != SUCCESS) {
 		return PF_FILEERR;
 	};
-	UnpinPage(pageHandle);
 	free(pfFileHeader);
 	free(pageHandle);
 
@@ -262,6 +265,8 @@ RC RM_OpenFile(char *fileName, RM_FileHandle *fileHandle)
 		return tmp;
 	}
 	fileHandle->pRecFrame = pageHandle->pFrame;
+
+
 	fileHandle->pRecordFileSubHeader = (RM_FileSubHeader*)pageHandle->pFrame->page.pData;
 	fileHandle->pRecPage = &(pageHandle->pFrame->page);
 	fileHandle->pRecordBitmap = fileHandle->pRecFrame->page.pData + RM_FILESUBHDR_SIZE;
