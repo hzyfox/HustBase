@@ -4,6 +4,7 @@
 #include "PF_Manager.h"
 #include "str.h"
 #include<iostream>
+#include<array>
 using namespace std;
 #define RM_FILESUBHDR_SIZE (sizeof(RM_FileSubHeader))
 typedef int SlotNum;
@@ -44,6 +45,7 @@ typedef struct {//文件句柄
 	char* pRecordBitmap; //记录位图指针,记录满页，非满页
 	Frame* pRecFrame; //指向记录元信息帧
 	Page* pRecPage; //指向记录元信息页
+	RM_PageHandle* rmPageHandle;
 	//需要自定义其内部结构
 }RM_FileHandle;
 
@@ -108,8 +110,10 @@ RC RM_CreateFile (char *fileName, int recordSize);
 RM_PageHandle* getRM_PageHanle();
 bool compSingleCondition(const Con* con, const RM_Record* record);
 void ConfigRMPageHandle(RM_PageHandle* rmPageHandle, RM_FileHandle* rmFileHandle, PF_PageHandle* pfPageHandle);
+void ConfigRMFilePageHandle(RM_PageHandle* rmPageHandle, RM_FileHandle* rmFileHandle, PF_PageHandle* pfPageHandle);
 int RM_BitCount(char* bitmap, int size);
 RC RM_GetThisPage(RM_FileHandle* rmFileHandle, PageNum pageNum, RM_PageHandle* rmPageHandle);
 RC RM_AllocatePage(RM_FileHandle* fileHandle, RM_PageHandle* rmPageHandle);
+bool equalStr(char* str0, char* str1, int len);
 
 #endif

@@ -2,6 +2,7 @@
 #include "RM_Manager.h"
 #include "str.h"
 #include "PF_Manager.h"
+
 //初始化人rmFileScan， 准备扫描每一个插槽
 RC OpenScan(RM_FileScan *rmFileScan,RM_FileHandle *fileHandle,int conNum,Con *conditions)
 {
@@ -22,7 +23,7 @@ RC OpenScan(RM_FileScan *rmFileScan,RM_FileHandle *fileHandle,int conNum,Con *co
 		perror("init rmFileScan failed");
 		return RM_EOF;
 	}
-
+	
 	return SUCCESS;
 }
 
@@ -33,15 +34,16 @@ RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 	int i = 0;
 	for (i = rmFileScan->pn; i <= pageCount; ++i) {
 		rmFileScan->pn = i;
+		//如果没有allocted 跳过
 		if (!(rmFileHandle->pFileHandler->pBitmap[i / 8] & (1 << (i % 8)))) {
 			continue;
 		}
 		if (GetThisPage(rmFileScan->pRMFileHandle->pFileHandler, i, &(rmFileScan->PageHandle)) != SUCCESS) {
 			continue;
 		}
-		PF_PageHandle pageHandle = rmFileScan->PageHandle;
+		//PF_PageHandle pageHandle = rmFileScan->PageHandle; 不能这么传递，会变成值传递
 		RM_PageHandle rmPageHandle;
-		ConfigRMPageHandle(&rmPageHandle, rmFileHandle, &pageHandle);
+		ConfigRMPageHandle(&rmPageHandle, rmFileHandle, &rmFileScan->PageHandle);
 		int recordPerPage = rmFileHandle->pRecordFileSubHeader->recordsPerPage;
 		char* pageBitmap = rmPageHandle.bitmap;
 		int recordSize = rmFileHandle->pRecordFileSubHeader->recordSize;
@@ -52,6 +54,7 @@ RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 			}
 			Con* con = rmFileScan->conditions;
 			bool res = true;
+			rec->pData = (char*)(malloc(recordSize));
 			memcpy(rec->pData, rmPageHandle.data + j * recordSize, recordSize);
 			for (int k = 0; k < rmFileScan->conNum; ++k) {
 				res &= compSingleCondition(con + k, rec);
@@ -71,11 +74,11 @@ RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 					rmFileScan->pn = i;
 					rmFileScan->sn = j + 1;
 				}
-				UnpinPage(&pageHandle);
+				UnpinPage(&rmFileScan->PageHandle);
 				return SUCCESS;
 			}
 		}
-		UnpinPage(&pageHandle);
+		UnpinPage(&rmFileScan->PageHandle);
 	}
 
 	return RM_EOF;
@@ -98,6 +101,9 @@ RC GetRec (RM_FileHandle *fileHandle,RID *rid, RM_Record *rec)
 	rec->rid = *rid;
 	int recordSize = fileHandle->pRecordFileSubHeader->recordSize;
 	rec->pData = (char*)malloc(recordSize);
+	if (!(rmPageHandle->bitmap[rid->slotNum / 8] & (1 << (rid->slotNum % 8)))) {
+		return RM_INVALIDRID;
+	}
 	memcpy(rec->pData, 
 		rmPageHandle->data + rid->slotNum * recordSize, recordSize);
 	UnpinPage(rmPageHandle->pageHandle);
@@ -124,6 +130,8 @@ RC InsertRec (RM_FileHandle *fileHandle,char *pData, RID *rid)
 			/*rmPageHandle->pageHandle->pFrame->bDirty = true;*/
 			MarkDirty(rmPageHandle->pageHandle);
 			memcpy(rmPageHandle->data + (i * rmPageHandle->recordSize), pData, rmPageHandle->recordSize);
+			_ASSERT_EXPR(equalStr(rmPageHandle->data + (i * rmPageHandle->recordSize), pData,
+				rmPageHandle->recordSize), "insert incorrect position");
 			rmPageHandle->bitmap[byte] |= (1 << bit);
 			_ASSERT_EXPR(rmPageHandle->bitmap[byte] & (1 << bit), "page bitmap set failed");
 			fileHandle->pRecordFileSubHeader->nRecords++;
@@ -174,10 +182,12 @@ RC DeleteRec (RM_FileHandle *fileHandle,const RID *rid)
 	byte = rid->pageNum / 8;
 	bit = rid->pageNum % 8;
 	fileHandle->pRecordBitmap[byte] &= ~(1 << bit);
+	_ASSERT_EXPR((fileHandle->pRecordBitmap[byte] & (1 << bit)) == 0, "delete, but bitmap not change");
 	fileHandle->pRecordFileSubHeader->nRecords--;
 	UnpinPage(rmPageHandle->pageHandle);
 	free(rmPageHandle->pageHandle);
 	free(rmPageHandle);
+	
 	return SUCCESS;
 }
 
@@ -196,7 +206,7 @@ RC UpdateRec (RM_FileHandle *fileHandle,const RM_Record *rec)
 		return tmp;
 	}
 	MarkDirty(rmPageHandle->pageHandle);
-	memcpy(rmPageHandle->data, rec->pData, fileHandle->pRecordFileSubHeader->recordSize);
+	memcpy(rmPageHandle->data+rec->rid.slotNum * rmPageHandle->recordSize, rec->pData, fileHandle->pRecordFileSubHeader->recordSize);
 	UnpinPage(rmPageHandle->pageHandle);
 	free(rmPageHandle->pageHandle);
 	free(rmPageHandle);
@@ -278,7 +288,7 @@ RC RM_OpenFile(char *fileName, RM_FileHandle *fileHandle)
 	fileHandle->bOpen = true;
 	fileHandle->pFileHandler = pfFileHeader;
 	PF_PageHandle* pageHandle = getPF_PageHandle();
-
+	RM_PageHandle* rmPageHandle = getRM_PageHanle();
 	if ((tmp = GetThisPage(pfFileHeader, pfFileHeader->pHdrFrame->page.pageNum + 1, pageHandle))!=SUCCESS) {
 		return tmp;
 	}
@@ -288,10 +298,13 @@ RC RM_OpenFile(char *fileName, RM_FileHandle *fileHandle)
 	fileHandle->pRecordFileSubHeader = (RM_FileSubHeader*)pageHandle->pFrame->page.pData;
 	fileHandle->pRecPage = &(pageHandle->pFrame->page);
 	fileHandle->pRecordBitmap = fileHandle->pRecFrame->page.pData + RM_FILESUBHDR_SIZE;
-	free(pageHandle);
+	
+	ConfigRMFilePageHandle(rmPageHandle, fileHandle, pageHandle);
+	fileHandle->rmPageHandle = rmPageHandle;
+
 	return SUCCESS;
 }
-
+//这里保留 fileHandle 不free 因为测试程序需要测试关闭了文件之后 功能是否正常
 RC RM_CloseFile(RM_FileHandle *fileHandle)
 {
 	RC tmp;
@@ -299,6 +312,10 @@ RC RM_CloseFile(RM_FileHandle *fileHandle)
 	if ((tmp = CloseFile(fileHandle->pFileHandler)) != SUCCESS) {
 		return tmp;
 	}
+	
+	
+
+
 	return SUCCESS;
 }
 
@@ -390,6 +407,17 @@ void ConfigRMPageHandle(RM_PageHandle* rmPageHandle, RM_FileHandle* rmFileHandle
 	rmPageHandle->recordSize = rmFileHandle->pRecordFileSubHeader->recordSize;
 }
 
+void ConfigRMFilePageHandle(RM_PageHandle* rmPageHandle, RM_FileHandle* rmFileHandle, PF_PageHandle* pfPageHandle) {
+	rmPageHandle->pageHandle = pfPageHandle;
+	rmPageHandle->data = NULL; //控制页没有data 
+	rmPageHandle->bitmap = rmPageHandle->pageHandle->pFrame->page.pData + RM_FILESUBHDR_SIZE;
+	rmPageHandle->firstRecordOffset = rmFileHandle->pRecordFileSubHeader->firstRecordOffset;
+	rmPageHandle->recordPerPage = rmFileHandle->pRecordFileSubHeader->recordsPerPage;
+	rmPageHandle->recordSize = rmFileHandle->pRecordFileSubHeader->recordSize;
+}
+
+
+
 bool compSingleCondition(const Con* con, const RM_Record* record) {
 	void* lVal,  *rVal;
 	if (con->bLhsIsAttr) {
@@ -449,6 +477,16 @@ bool compSingleCondition(const Con* con, const RM_Record* record) {
 	default:
 		return false;
 	}
+}
+
+bool equalStr(char* str0, char* str1, int len) {
+	
+	for (int i = 0; i < len; ++i) {
+		if (str1[i] != str0[i]) {
+			return false;
+		}
+	}
+	return true;
 }
 
 
