@@ -88,7 +88,7 @@ RC GetRec (RM_FileHandle *fileHandle,RID *rid, RM_Record *rec)
 	}
 	RC tmp;
 	//int byte, bit;
-	fileHandle->pRecFrame->bDirty = true;
+	//fileHandle->pRecFrame->bDirty = true;
 	
 	RM_PageHandle* rmPageHandle = getRM_PageHanle();
 	if ((tmp = RM_GetThisPage(fileHandle, rid->pageNum, rmPageHandle)) != SUCCESS) {
@@ -100,12 +100,16 @@ RC GetRec (RM_FileHandle *fileHandle,RID *rid, RM_Record *rec)
 	rec->pData = (char*)malloc(recordSize);
 	memcpy(rec->pData, 
 		rmPageHandle->data + rid->slotNum * recordSize, recordSize);
+	UnpinPage(rmPageHandle->pageHandle);
+	free(rmPageHandle->pageHandle);
+	free(rmPageHandle);
 	return SUCCESS;
 }
 
 RC InsertRec (RM_FileHandle *fileHandle,char *pData, RID *rid)
 {
-	RM_PageHandle* rmPageHandle = getRM_PageHanle();
+	RM_PageHandle  _rmPageHandle;
+	RM_PageHandle* rmPageHandle = &_rmPageHandle;
 	RC tmp;
 	if ((tmp = RM_AllocatePage(fileHandle, rmPageHandle)) != SUCCESS) {
 		return tmp;
@@ -119,17 +123,22 @@ RC InsertRec (RM_FileHandle *fileHandle,char *pData, RID *rid)
 		if ((rmPageHandle->bitmap[byte] & (1 << bit)) == 0) {
 			/*rmPageHandle->pageHandle->pFrame->bDirty = true;*/
 			MarkDirty(rmPageHandle->pageHandle);
-			memcpy(rmPageHandle->data + (i * fileHandle->pRecordFileSubHeader->recordSize),
-				 pData, fileHandle->pRecordFileSubHeader->recordSize);
-			rmPageHandle->count++;
+			memcpy(rmPageHandle->data + (i * rmPageHandle->recordSize), pData, rmPageHandle->recordSize);
 			rmPageHandle->bitmap[byte] |= (1 << bit);
+			_ASSERT_EXPR(rmPageHandle->bitmap[byte] & (1 << bit), "page bitmap set failed");
 			fileHandle->pRecordFileSubHeader->nRecords++;
 			rid->bValid = true;
 			rid->pageNum = rmPageHandle->pageHandle->pFrame->page.pageNum;
-			if (rmPageHandle->count >= fileHandle->pRecordFileSubHeader->recordsPerPage) {
+			int count = RM_BitCount(rmPageHandle->bitmap, rmPageHandle->firstRecordOffset);
+			if (count >= rmPageHandle->recordPerPage) {
 				fileHandle->pRecordBitmap[(rid->pageNum)/8] |= (1 << ((rid->pageNum) % 8));
+				_ASSERT_EXPR(fileHandle->pRecordBitmap[(rid->pageNum)/8] & (1 << ((rid->pageNum)%8)), "record bitmap set failed");
 			}
 			rid->slotNum = i;
+			_ASSERT_EXPR(fileHandle->pRecFrame->bDirty, "fileHandle->pRecFrame->bDirty is false");
+			UnpinPage(rmPageHandle->pageHandle);
+			_ASSERT_EXPR(rmPageHandle->pageHandle->pFrame->pinCount == 0, "pincount !=0");
+			free(rmPageHandle->pageHandle);
 			return SUCCESS;
 		}
 	}
@@ -137,6 +146,9 @@ RC InsertRec (RM_FileHandle *fileHandle,char *pData, RID *rid)
 		perror("insert Rec failed");
 		return FAIL;
 	}
+	UnpinPage(rmPageHandle->pageHandle);
+	_ASSERT_EXPR(rmPageHandle->pageHandle->pFrame->pinCount == 0, "pincount !=0");
+	free(rmPageHandle->pageHandle);
 	return SUCCESS;
 }
 
@@ -158,12 +170,14 @@ RC DeleteRec (RM_FileHandle *fileHandle,const RID *rid)
 
 	MarkDirty(rmPageHandle->pageHandle);
 	rmPageHandle->bitmap[byte] &= ~(1 << bit);
-	rmPageHandle->count--;
+
 	byte = rid->pageNum / 8;
 	bit = rid->pageNum % 8;
 	fileHandle->pRecordBitmap[byte] &= ~(1 << bit);
 	fileHandle->pRecordFileSubHeader->nRecords--;
-
+	UnpinPage(rmPageHandle->pageHandle);
+	free(rmPageHandle->pageHandle);
+	free(rmPageHandle);
 	return SUCCESS;
 }
 
@@ -183,6 +197,9 @@ RC UpdateRec (RM_FileHandle *fileHandle,const RM_Record *rec)
 	}
 	MarkDirty(rmPageHandle->pageHandle);
 	memcpy(rmPageHandle->data, rec->pData, fileHandle->pRecordFileSubHeader->recordSize);
+	UnpinPage(rmPageHandle->pageHandle);
+	free(rmPageHandle->pageHandle);
+	free(rmPageHandle);
 	return SUCCESS;
 }
 
@@ -278,10 +295,10 @@ RC RM_OpenFile(char *fileName, RM_FileHandle *fileHandle)
 RC RM_CloseFile(RM_FileHandle *fileHandle)
 {
 	RC tmp;
+	fileHandle->pRecFrame->pinCount--;
 	if ((tmp = CloseFile(fileHandle->pFileHandler)) != SUCCESS) {
 		return tmp;
 	}
-	fileHandle->pRecFrame->pinCount--;
 	return SUCCESS;
 }
 
@@ -291,6 +308,7 @@ RC RM_AllocatePage(RM_FileHandle* fileHandle, RM_PageHandle* rmPageHandle) {
 	if (!fileHandle->bOpen) {
 		return RM_FHCLOSED;
 	}
+	//TODO: 这里如何避免重复申请PageHandle
 	PF_PageHandle* pfPageHandle = getPF_PageHandle();
 	PF_FileHandle* pFileHandler = fileHandle->pFileHandler;
 	char* PF_bitmap = pFileHandler->pBitmap;
@@ -301,8 +319,9 @@ RC RM_AllocatePage(RM_FileHandle* fileHandle, RM_PageHandle* rmPageHandle) {
 	for (i = 0; i <= pFileHandler->pFileSubHeader->pageCount; i++) {
 		byte = i / 8;
 		bit = i % 8;
-		bool allocated = ((PF_bitmap[byte] & (1 << bit)) == 1);
-		bool full = ((rec_bitmap[byte] & (1 << bit)) == 1);
+		//注意这里不能判断==1,应该判断==(1<<bit)
+		bool allocated = ((PF_bitmap[byte] & (1 << bit)) != 0);
+		bool full = ((rec_bitmap[byte] & (1 << bit)) !=0);
 		
 		if (full) {
 			continue;
@@ -311,6 +330,8 @@ RC RM_AllocatePage(RM_FileHandle* fileHandle, RM_PageHandle* rmPageHandle) {
 			if ((tmp = GetThisPage(pFileHandler, i, pfPageHandle)) != SUCCESS) {
 				return tmp;
 			}
+			ConfigRMPageHandle(rmPageHandle, fileHandle, pfPageHandle);
+			return SUCCESS;
 		}else {
 			pFileHandler->pHdrFrame->bDirty=true;
 			(pFileHandler->pFileSubHeader->nAllocatedPages)++;
@@ -318,15 +339,14 @@ RC RM_AllocatePage(RM_FileHandle* fileHandle, RM_PageHandle* rmPageHandle) {
 			if ((tmp = GetThisPage(pFileHandler, i, pfPageHandle)) != SUCCESS) {
 				return tmp;
 			}
+			ConfigRMPageHandle(rmPageHandle, fileHandle, pfPageHandle);
+			return SUCCESS;
 		}
-		ConfigRMPageHandle(rmPageHandle, fileHandle, pfPageHandle);
-		return SUCCESS;
 	}
 
 	if ((tmp = AllocateNewPage(pFileHandler, pfPageHandle)) != SUCCESS) {
 		return tmp;
 	}
-
 	ConfigRMPageHandle(rmPageHandle, fileHandle, pfPageHandle);
 	return SUCCESS;
 }
@@ -363,11 +383,11 @@ int RM_BitCount(char* bitmap, int size) {
 
 void ConfigRMPageHandle(RM_PageHandle* rmPageHandle, RM_FileHandle* rmFileHandle, PF_PageHandle* pfPageHandle) {
 	rmPageHandle->pageHandle = pfPageHandle;
-	rmPageHandle->data = rmPageHandle->pageHandle->pFrame->page.pData + RM_FILESUBHDR_SIZE;
+	rmPageHandle->data = rmPageHandle->pageHandle->pFrame->page.pData + rmFileHandle->pRecordFileSubHeader->firstRecordOffset;
 	rmPageHandle->bitmap = rmPageHandle->pageHandle->pFrame->page.pData;
-	if (pfPageHandle->pFrame->page.pageNum > 1) {
-		rmPageHandle->count = RM_BitCount(rmPageHandle->bitmap, rmFileHandle->pRecordFileSubHeader->firstRecordOffset);
-	}
+	rmPageHandle->firstRecordOffset = rmFileHandle->pRecordFileSubHeader->firstRecordOffset;
+	rmPageHandle->recordPerPage = rmFileHandle->pRecordFileSubHeader->recordsPerPage;
+	rmPageHandle->recordSize = rmFileHandle->pRecordFileSubHeader->recordSize;
 }
 
 bool compSingleCondition(const Con* con, const RM_Record* record) {

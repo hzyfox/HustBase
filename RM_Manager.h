@@ -3,16 +3,39 @@
 
 #include "PF_Manager.h"
 #include "str.h"
-
+#include<iostream>
+using namespace std;
 #define RM_FILESUBHDR_SIZE (sizeof(RM_FileSubHeader))
 typedef int SlotNum;
 
+//#ifdef _DEBUG
+//#   define _ASSERT(condition, message) \
+//    do { \
+//        if (! (condition)) { \
+//            std::cerr << "Assertion `" #condition "` failed in " << __FILE__ \
+//                      << " line " << __LINE__ << ": " << message << std::endl; \
+//            std::terminate(); \
+//        } \
+//    } while (false)
+//#else
+//#   define ASSERT(condition, message) do { } while (false)
+//#endif
 typedef struct {
 	int nRecords; //当前文件中包含的记录数
 	int recordSize; //每个记录的大小
 	int recordsPerPage; //每个页面可以装在的记录数量
 	int firstRecordOffset; //每页第一个记录在数据区的开始位置，我理解是去除每页的位图之后的位置
 }RM_FileSubHeader;
+
+typedef struct {
+	PF_PageHandle* pageHandle;
+	char* data;
+	char* bitmap;
+	int firstRecordOffset;
+	int recordPerPage;
+	int recordSize;
+}RM_PageHandle;
+
 
 typedef struct {//文件句柄
 	bool bOpen;//句柄是否打开（是否正在被使用）
@@ -24,12 +47,6 @@ typedef struct {//文件句柄
 	//需要自定义其内部结构
 }RM_FileHandle;
 
-typedef struct {
-	PF_PageHandle* pageHandle;
-	char* data;
-	char* bitmap;
-	int count;
-}RM_PageHandle;
 
 typedef struct {	
 	PageNum pageNum;	//记录所在页的页号
