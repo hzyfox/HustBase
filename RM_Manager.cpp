@@ -54,8 +54,8 @@ RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 			}
 			Con* con = rmFileScan->conditions;
 			bool res = true;
-			rec->pData = (char*)(malloc(recordSize));
-			memcpy(rec->pData, rmPageHandle.data + j * recordSize, recordSize);
+			rec->pData = rmPageHandle.data + j * recordSize;//这里先浅拷贝，进行比较
+			
 			for (int k = 0; k < rmFileScan->conNum; ++k) {
 				res &= compSingleCondition(con + k, rec);
 				if (!res) {
@@ -74,6 +74,9 @@ RC GetNextRec(RM_FileScan *rmFileScan,RM_Record *rec)
 					rmFileScan->pn = i;
 					rmFileScan->sn = j + 1;
 				}
+				//符合条件时，再进行深拷贝
+				rec->pData = (char*)(malloc(recordSize));
+				memcpy(rec->pData, rmPageHandle.data + j * recordSize, recordSize);
 				UnpinPage(&rmFileScan->PageHandle);
 				return SUCCESS;
 			}
