@@ -230,11 +230,12 @@ RC RM_CreateFile (char *fileName, int recordSize)
 	rmFileSubHeader->recordSize = recordSize;
 	rmFileSubHeader->nRecords = 0;
 	//假设位图占x字节， 则 x + 8x*recordSize = PF_PAGE_SIZE; 位图需要向上取整，才能保证能记录所有record
-	rmFileSubHeader->firstRecordOffset = (int)ceilf((float)PF_PAGE_SIZE
-		/ (float)(sizeof(char) * recordSize + 1));
+	
+	rmFileSubHeader->firstRecordOffset = (int)ceil((float)PF_PAGE_SIZE
+		/ (float)(8 * recordSize + 1));
 	// 算出位图的Offset后， 剩下的空间就是能够存放的记录数， 向下取整，因为记录不能半途而废
 	rmFileSubHeader->recordsPerPage = (PF_PAGE_SIZE - rmFileSubHeader->firstRecordOffset)
-		/ sizeof(char);
+		/ recordSize;
 
 	MarkDirty(pageHandle);
 	UnpinPage(pageHandle);

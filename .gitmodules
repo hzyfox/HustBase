@@ -1,0 +1,3 @@
+[submodule "HustBaseTest"]
+	path = HustBaseTest
+	url = https://github.com/hzyfox/HustBaseTest.git
