@@ -4,6 +4,10 @@
 #include "RM_Manager.h"
 #include "PF_Manager.h"
 
+typedef PF_FileHandle IF_FileHandle;
+typedef PF_FileSubHeader IF_FileSubHeader;
+#define NO_BROTHER -1
+#define NO_PARENT -2
 typedef struct{
 	int attrLength;
 	int keyLength;
