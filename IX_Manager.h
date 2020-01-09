@@ -21,6 +21,8 @@ typedef struct{
 	bool bOpen;
 	PF_FileHandle fileHandle;
 	IX_FileHeader fileHeader;
+	IX_Node* ixNode;
+	Frame* frame;
 }IX_IndexHandle;
 
 typedef struct{
