@@ -3,7 +3,7 @@
 
 #include "RM_Manager.h"
 #include "PF_Manager.h"
-
+//TODO: 新建一个BFManger,使得索引文件有单独的cache 页面
 typedef PF_FileHandle IF_FileHandle;
 typedef PF_FileSubHeader IF_FileSubHeader;
 #define NO_BROTHER -1
@@ -17,22 +17,27 @@ typedef struct{
 	int order;
 }IX_FileHeader;
 
-typedef struct{
-	bool bOpen;
-	PF_FileHandle fileHandle;
-	IX_FileHeader fileHeader;
-	IX_Node* ixNode;
-	Frame* frame;
-}IX_IndexHandle;
-
-typedef struct{
+typedef struct {
 	int is_leaf;
 	int keynum;
 	PageNum parent;
 	PageNum brother;
-	char *keys;
-	RID *rids;
+	char* keys;
+	RID* rids;
 }IX_Node;
+
+typedef struct {
+	IX_FileHeader* fileHeader;
+	IX_Node* ixNode;
+	PF_PageHandle pageHandle;
+}IX_PageHandle;
+
+typedef struct{
+	bool bOpen;
+	PF_FileHandle fileHandle; //存放第一页的页面管理器
+	IX_PageHandle ixPageHandle;//存放第二页的页面管理
+}IX_IndexHandle;
+
 
 typedef struct{
 	bool bOpen;		/*扫描是否打开 */
